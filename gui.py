@@ -36,8 +36,8 @@ def get_session_id():
         st.session_state.sid = uuid.uuid4().hex[:12]
     return st.session_state.sid
 
-st.set_page_config(page_title="PatoDNA", layout="centered")
-st.title("🧬PatoDNA Encode/Decode🧬")
+st.set_page_config(page_title="PatoDNA - Secure Viewer", layout="centered")
+st.title("🧬 PatoDNA - Secure Kodowanie/Dekodowanie")
 
 mode = st.radio("Tryb:", ("Encode","Decode"), horizontal=True)
 
@@ -45,8 +45,8 @@ mode = st.radio("Tryb:", ("Encode","Decode"), horizontal=True)
 # TRYB ENCODE
 # =========================
 if mode=="Encode":
-    uploaded = st.file_uploader("Select an image", type=["jpg","jpeg","png"])
-    n_codes = st.slider("How many codes do you want?",1,500,20)
+    uploaded = st.file_uploader("Wybierz obraz", type=["jpg","jpeg","png"])
+    n_codes = st.slider("Ile kodów?",1,500,20)
 
     if uploaded and st.button("Encode"):
         try:
@@ -58,12 +58,12 @@ if mode=="Encode":
                 db[c]={"status":"unused","master":master}
             save_codes(db)
 
-            # zapisujemy obraz w pełnej rozdzielczości, ostro
             Image.open(uploaded).convert("RGB").save(TMP_INPUT)
             encode(TMP_INPUT, code=master)
 
             buf = io.BytesIO()
-            Image.open(OUT_PATH).save(buf, format="PNG")  # ostre, brak rozmycia
+            encoded_img = Image.open(OUT_PATH)
+            encoded_img.save(buf, format="PNG")
             buf.seek(0)
 
             st.session_state.encode_done=True
@@ -74,13 +74,11 @@ if mode=="Encode":
             TMP_INPUT.unlink(missing_ok=True)
 
     if st.session_state.encode_done:
-        st.success("✅ Encoded")
+        st.success("✅ Zakodowano")
         st.code("\n".join(st.session_state.access_codes))
-        # 🔹 Wyświetlamy obraz w oryginalnej rozdzielczości
         st.image(Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-                 caption="PatoDNA Product (encoded)")
-
-        st.download_button("⬇ Download image",
+                 caption="PatoDNA Product (zakodowany)")
+        st.download_button("⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
             mime="image/png")
@@ -89,14 +87,14 @@ if mode=="Encode":
 # TRYB DECODE
 # =========================
 if mode=="Decode":
-    uploaded = st.file_uploader("Upload PatoDNA PNG", type=["png"])
-    code = st.text_input("One-time code")
+    uploaded = st.file_uploader("Wgraj PatoDNA PNG", type=["png"])
+    code = st.text_input("Jednorazowy kod")
 
     if uploaded and code and st.button("Decode"):
         try:
             db = load_codes()
             if code not in db or db[code]["status"]=="used":
-                st.error("Invalid code")
+                st.error("Kod nieprawidłowy")
                 st.stop()
 
             sid = get_session_id()
@@ -120,52 +118,42 @@ if mode=="Decode":
             }
             save_codes(db)
 
-            st.success("✅ Decoded")
+            st.success("✅ Odszyfrowano")
 
             # =========================
-            # Animacja góra/dół z zachowaniem pełnej rozdzielczości
+            # Dynamiczna, płynna animacja góra/dół
             # =========================
             product_img = Image.open(OUT_PATH).convert("RGB")
             recovered_img = Image.open(RECON_PATH).convert("RGB")
-
             w, h = recovered_img.size
-            # brak resize, zachowujemy ostrość
-            product_img = product_img.resize((w,h))  # tylko dopasowanie rozmiaru jeśli konieczne
-
-            display_duration = 10
-            frame_count = 1500
-            delay = display_duration / frame_count / 2
+            product_img = product_img.resize((w, h))
 
             display_slot = st.empty()
+            radius = 5  # minimalne zaokrąglenie rogów
+            total_duration = 5.0  # sekundy na pełne góra-dół
+            fps = 30
+            total_frames = int(total_duration * fps)
 
-            for i in range(frame_count):
-                combined = Image.new("RGB", (w, h))
-
-                osc_frac = np.sin(2 * np.pi * i / 60)
+            start_time = time.time()
+            while True:
+                t = (time.time() - start_time) % total_duration
+                osc_frac = np.sin(2 * np.pi * t / total_duration)
                 split_top = int((h//2) * (0.5 + 0.5*osc_frac))
                 split_bottom = int(h - (h//2) * (0.5 - 0.5*osc_frac))
 
-                combined.paste(product_img.crop((0, 0, w, split_top)), (0, 0))
-                combined.paste(product_img.crop((0, split_bottom, w, h)), (0, split_bottom))
+                combined = product_img.copy()
 
                 if split_bottom > split_top:
-                    region = recovered_img.crop((0, split_top, w, split_bottom))
-                    mask = Image.new("L", (w, split_bottom - split_top), 0)
+                    mask = Image.new("L", (w, h), 0)
                     draw = ImageDraw.Draw(mask)
-                    radius = 6
                     draw.rounded_rectangle(
-                        (0, 0, w, split_bottom - split_top),
+                        (0, split_top, w, split_bottom),
                         radius=radius,
                         fill=255
                     )
-                    combined.paste(region, (0, split_top), mask)
+                    combined.paste(recovered_img, (0, 0), mask)
 
-                # 🔹 Wyświetlamy w pełnej rozdzielczości, brak width
-                display_slot.image(combined,
-                                   caption="Decoded image with protection")
-                time.sleep(delay)
-
-            display_slot.empty()
+                display_slot.image(combined)
 
         finally:
             TMP_DNA.unlink(missing_ok=True)
