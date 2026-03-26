@@ -3,8 +3,8 @@
 
 import streamlit as st
 from pathlib import Path
-import json, secrets, io, uuid, datetime, platform, time
-from PIL import Image, ImageDraw
+import json, secrets, io, uuid, datetime, platform
+from PIL import Image
 import numpy as np
 from pato import encode, decode, OUT_PATH, RECON_PATH
 
@@ -77,14 +77,14 @@ if mode=="Encode":
         st.success("✅ Zakodowano")
         st.code("\n".join(st.session_state.access_codes))
         st.image(Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-                 caption="PatoDNA Product (zakodowany)")
+                 caption="PatoDNA Product (zakodowany)", width=400)
         st.download_button("⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
             mime="image/png")
 
 # =========================
-# TRYB DECODE
+# TRYB DECODE - proste wyświetlanie odkodowanego obrazu
 # =========================
 if mode=="Decode":
     uploaded = st.file_uploader("Wgraj PatoDNA PNG", type=["png"])
@@ -100,15 +100,18 @@ if mode=="Decode":
             sid = get_session_id()
             master = db[code]["master"]
 
+            # zapisanie wgranej grafiki tymczasowo
             with open(TMP_DNA, "wb") as f:
                 f.write(uploaded.read())
 
+            # odszyfrowanie
             decode(
                 master,
                 png_path=TMP_DNA,
                 watermark_text=f"CODE:{code}|SID:{sid}"
             )
 
+            # aktualizacja statusu kodu
             db[code] = {
                 "status":"used",
                 "master":master,
@@ -120,40 +123,9 @@ if mode=="Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # =========================
-            # Dynamiczna, płynna animacja góra/dół
-            # =========================
-            product_img = Image.open(OUT_PATH).convert("RGB")
+            # wyświetlenie odkodowanego obrazu (pełny rozmiar, ostry)
             recovered_img = Image.open(RECON_PATH).convert("RGB")
-            w, h = recovered_img.size
-            product_img = product_img.resize((w, h))
-
-            display_slot = st.empty()
-            radius = 5  # minimalne zaokrąglenie rogów
-            total_duration = 5.0  # sekundy na pełne góra-dół
-            fps = 30
-            total_frames = int(total_duration * fps)
-
-            start_time = time.time()
-            while True:
-                t = (time.time() - start_time) % total_duration
-                osc_frac = np.sin(2 * np.pi * t / total_duration)
-                split_top = int((h//2) * (0.5 + 0.5*osc_frac))
-                split_bottom = int(h - (h//2) * (0.5 - 0.5*osc_frac))
-
-                combined = product_img.copy()
-
-                if split_bottom > split_top:
-                    mask = Image.new("L", (w, h), 0)
-                    draw = ImageDraw.Draw(mask)
-                    draw.rounded_rectangle(
-                        (0, split_top, w, split_bottom),
-                        radius=radius,
-                        fill=255
-                    )
-                    combined.paste(recovered_img, (0, 0), mask)
-
-                display_slot.image(combined)
+            st.image(recovered_img, caption="Odszyfrowany obraz", use_column_width=False)
 
         finally:
             TMP_DNA.unlink(missing_ok=True)
