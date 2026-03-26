@@ -76,8 +76,10 @@ if mode=="Encode":
     if st.session_state.encode_done:
         st.success("✅ Zakodowano")
         st.code("\n".join(st.session_state.access_codes))
+        # wyświetlamy obraz w pełnym rozmiarze, bez width
         st.image(Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-                 caption="PatoDNA Product (zakodowany)", width=400)
+                 caption="PatoDNA Product (zakodowany)")
+
         st.download_button("⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
@@ -123,9 +125,9 @@ if mode=="Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # wyświetlenie odkodowanego obrazu (pełny rozmiar, ostry)
+            # wyświetlenie odkodowanego obrazu w pełnym rozmiarze i ostro
             recovered_img = Image.open(RECON_PATH).convert("RGB")
-            st.image(recovered_img, caption="Odszyfrowany obraz", use_column_width=False)
+            st.image(recovered_img, caption="Odszyfrowany obraz")
 
         finally:
             TMP_DNA.unlink(missing_ok=True)
