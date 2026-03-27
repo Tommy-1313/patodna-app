@@ -102,6 +102,7 @@ if mode == "Decode":
             sid = get_session_id()
             master = db[code]["master"]
 
+            # zapisujemy przesłany plik tymczasowo
             with open(TMP_DNA, "wb") as f:
                 f.write(uploaded.read())
 
@@ -111,6 +112,7 @@ if mode == "Decode":
                 watermark_text=f"CODE:{code}|SID:{sid}"
             )
 
+            # aktualizujemy status kodu w bazie
             db[code] = {
                 "status": "used",
                 "master": master,
@@ -122,24 +124,17 @@ if mode == "Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # =========================
-            # Wyświetlamy odkodowany obraz dopasowany do szerokości zakodowanego
-            # =========================
+            # 🔹 Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany,
+            # ale streamlit sam zmniejszy jeśli za szeroki
             recovered_img = Image.open(RECON_PATH).convert("RGB")
+            encoded_img = Image.open(OUT_PATH).convert("RGB")
+
+            display_width = min(encoded_img.width, 800)  # max szerokość 800 px w UI
             st.image(
                 recovered_img,
                 caption="Odszyfrowany obraz z zabezpieczeniem",
-                use_container_width=True  # dopasowanie do panelu, zachowuje proporcje
+                width=display_width
             )
-
-            # 🔹 Opcjonalne pobieranie odkodowanego obrazu
-            buf = io.BytesIO()
-            recovered_img.save(buf, format="PNG")
-            buf.seek(0)
-            st.download_button("⬇ Pobierz odkodowany obraz",
-                               buf.getvalue(),
-                               file_name="PatoDNA_decoded.png",
-                               mime="image/png")
 
         finally:
             TMP_DNA.unlink(missing_ok=True)
