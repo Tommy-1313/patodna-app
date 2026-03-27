@@ -35,8 +35,8 @@ def get_session_id():
         st.session_state.sid = uuid.uuid4().hex[:12]
     return st.session_state.sid
 
-st.set_page_config(page_title="PatoDNA - Secure Viewer", layout="centered")
-st.title("🧬 PatoDNA - Secure Kodowanie/Dekodowanie")
+st.set_page_config(page_title="PatoDNA", layout="centered")
+st.title("PatoDNA Encoding/Decoding")
 
 mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 
@@ -44,8 +44,8 @@ mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 # TRYB ENCODE
 # =========================
 if mode == "Encode":
-    uploaded = st.file_uploader("Wybierz obraz", type=["jpg","jpeg","png"])
-    n_codes = st.slider("Ile kodów?", 1, 500, 20)
+    uploaded = st.file_uploader("Select an image", type=["jpg","jpeg","png"])
+    n_codes = st.slider("How many codes do you want?", 1, 500, 20)
 
     if uploaded and st.button("Encode"):
         try:
@@ -82,14 +82,14 @@ if mode == "Encode":
             TMP_INPUT.unlink(missing_ok=True)
 
     if st.session_state.encode_done:
-        st.success("✅ Zakodowano")
+        st.success("✅ Encoded")
         st.code("\n".join(st.session_state.access_codes))
         st.image(
             Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-            caption="PatoDNA Product (zakodowany)"
+            caption="PatoDNA Product"
         )
         st.download_button(
-            "⬇ Pobierz obraz",
+            "Download image",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
             mime="image/png"
@@ -99,14 +99,14 @@ if mode == "Encode":
 # TRYB DECODE
 # =========================
 if mode == "Decode":
-    uploaded = st.file_uploader("Wgraj PatoDNA PNG", type=["png"])
-    code = st.text_input("Jednorazowy kod")
+    uploaded = st.file_uploader("Upload PatoDNA", type=["png"])
+    code = st.text_input("One-time code")
 
     if uploaded and code and st.button("Decode"):
         try:
             db = load_codes()
             if code not in db or db[code]["status"] == "used":
-                st.error("Kod nieprawidłowy")
+                st.error("Code invalid")
                 st.stop()
 
             sid = get_session_id()
@@ -132,7 +132,7 @@ if mode == "Decode":
             }
             save_codes(db)
 
-            st.success("✅ Odszyfrowano")
+            st.success("✅ Decrypted")
 
             # =========================
             # Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
@@ -145,7 +145,7 @@ if mode == "Decode":
 
             st.image(
                 recovered_img,
-                caption="Odszyfrowany obraz z zabezpieczeniem"
+                caption="Decrypted image with security"
             )
 
         finally:
