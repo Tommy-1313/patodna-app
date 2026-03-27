@@ -4,7 +4,7 @@
 import streamlit as st
 from pathlib import Path
 import json, secrets, io, uuid, datetime, platform
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from pato import encode, decode, OUT_PATH, RECON_PATH
 
 CODES_DB = Path("codes.json")
@@ -57,13 +57,22 @@ if mode == "Encode":
                 db[c] = {"status": "unused", "master": master}
             save_codes(db)
 
-            # zapisujemy obraz w pełnej rozdzielczości, ostro
+            # zapisujemy obraz w pełnej rozdzielczości
             Image.open(uploaded).convert("RGB").save(TMP_INPUT)
             encode(TMP_INPUT, code=master)
 
+            # 🔹 Zapisujemy obraz z pełnymi metadanymi do bufora
+            img = Image.open(OUT_PATH)
             buf = io.BytesIO()
-            Image.open(OUT_PATH).save(buf, format="PNG")  # ostre, brak rozmycia
+            pnginfo = PngImagePlugin.PngInfo()
+            for k, v in img.info.items():
+                pnginfo.add_text(k, str(v))
+            img.save(buf, format="PNG", pnginfo=pnginfo)
             buf.seek(0)
+
+            # 🔹 Zapis fizyczny na dysku (ważne dla dekodowania)
+            with open(OUT_PATH, "wb") as f:
+                f.write(buf.getvalue())
 
             st.session_state.encode_done = True
             st.session_state.access_codes = codes
@@ -77,13 +86,14 @@ if mode == "Encode":
         st.code("\n".join(st.session_state.access_codes))
         st.image(
             Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-            caption="PatoDNA Product (zakodowany)",
-            use_container_width=True  # dopasowanie do szerokości panelu
+            caption="PatoDNA Product (zakodowany)"
         )
-        st.download_button("⬇ Pobierz obraz",
+        st.download_button(
+            "⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
-            mime="image/png")
+            mime="image/png"
+        )
 
 # =========================
 # TRYB DECODE
@@ -112,7 +122,7 @@ if mode == "Decode":
                 watermark_text=f"CODE:{code}|SID:{sid}"
             )
 
-            # aktualizujemy status kodu w bazie
+            # aktualizacja statusu kodu
             db[code] = {
                 "status": "used",
                 "master": master,
@@ -124,16 +134,14 @@ if mode == "Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # 🔹 Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany,
-            # ale streamlit sam zmniejszy jeśli za szeroki
+            # 🔹 Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
             recovered_img = Image.open(RECON_PATH).convert("RGB")
             encoded_img = Image.open(OUT_PATH).convert("RGB")
 
-            display_width = min(encoded_img.width, 800)  # max szerokość 800 px w UI
             st.image(
                 recovered_img,
                 caption="Odszyfrowany obraz z zabezpieczeniem",
-                width=display_width
+                width=encoded_img.width  # dopasowujemy dokładnie do obrazu zakodowanego
             )
 
         finally:
