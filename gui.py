@@ -4,7 +4,7 @@
 import streamlit as st
 from pathlib import Path
 import json, secrets, io, uuid, datetime, platform
-from PIL import Image, PngImagePlugin
+from PIL import Image
 from pato import encode, decode, OUT_PATH, RECON_PATH
 
 CODES_DB = Path("codes.json")
@@ -61,13 +61,8 @@ if mode == "Encode":
             Image.open(uploaded).convert("RGB").save(TMP_INPUT)
             encode(TMP_INPUT, code=master)
 
-            # 🔹 Zapisujemy do bufora z zachowaniem metadanych (ważne dla dekodowania)
-            img = Image.open(OUT_PATH)
             buf = io.BytesIO()
-            pnginfo = PngImagePlugin.PngInfo()
-            for k,v in img.info.items():
-                pnginfo.add_text(k, str(v))
-            img.save(buf, format="PNG", pnginfo=pnginfo)
+            Image.open(OUT_PATH).save(buf, format="PNG")  # ostre, brak rozmycia
             buf.seek(0)
 
             st.session_state.encode_done = True
@@ -82,14 +77,13 @@ if mode == "Encode":
         st.code("\n".join(st.session_state.access_codes))
         st.image(
             Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-            caption="PatoDNA Product (zakodowany)"
+            caption="PatoDNA Product (zakodowany)",
+            use_container_width=True  # dopasowanie do szerokości panelu
         )
-        st.download_button(
-            "⬇ Pobierz obraz",
+        st.download_button("⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
-            mime="image/png"
-        )
+            mime="image/png")
 
 # =========================
 # TRYB DECODE
@@ -108,7 +102,6 @@ if mode == "Decode":
             sid = get_session_id()
             master = db[code]["master"]
 
-            # zapisujemy przesłany plik tymczasowo
             with open(TMP_DNA, "wb") as f:
                 f.write(uploaded.read())
 
@@ -118,7 +111,6 @@ if mode == "Decode":
                 watermark_text=f"CODE:{code}|SID:{sid}"
             )
 
-            # aktualizujemy status kodu w bazie
             db[code] = {
                 "status": "used",
                 "master": master,
@@ -130,15 +122,24 @@ if mode == "Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # 🔹 Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
+            # =========================
+            # Wyświetlamy odkodowany obraz dopasowany do szerokości zakodowanego
+            # =========================
             recovered_img = Image.open(RECON_PATH).convert("RGB")
-            encoded_img = Image.open(OUT_PATH).convert("RGB")
-
             st.image(
                 recovered_img,
                 caption="Odszyfrowany obraz z zabezpieczeniem",
-                width=encoded_img.width  # dopasowujemy do zakodowanego obrazu
+                use_container_width=True  # dopasowanie do panelu, zachowuje proporcje
             )
+
+            # 🔹 Opcjonalne pobieranie odkodowanego obrazu
+            buf = io.BytesIO()
+            recovered_img.save(buf, format="PNG")
+            buf.seek(0)
+            st.download_button("⬇ Pobierz odkodowany obraz",
+                               buf.getvalue(),
+                               file_name="PatoDNA_decoded.png",
+                               mime="image/png")
 
         finally:
             TMP_DNA.unlink(missing_ok=True)
