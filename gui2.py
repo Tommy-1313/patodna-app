@@ -57,13 +57,12 @@ if mode == "Encode":
                 db[c] = {"status": "unused", "master": master}
             save_codes(db)
 
-            # Zapisujemy obraz w pełnej rozdzielczości
+            # zapisujemy obraz w pełnej rozdzielczości, ostro
             Image.open(uploaded).convert("RGB").save(TMP_INPUT)
             encode(TMP_INPUT, code=master)
 
-            # Bufor do pobrania
             buf = io.BytesIO()
-            Image.open(OUT_PATH).save(buf, format="PNG")
+            Image.open(OUT_PATH).save(buf, format="PNG")  # ostre, brak rozmycia
             buf.seek(0)
 
             st.session_state.encode_done = True
@@ -104,18 +103,15 @@ if mode == "Decode":
             sid = get_session_id()
             master = db[code]["master"]
 
-            # Zapisujemy PNG tymczasowo
             with open(TMP_DNA, "wb") as f:
                 f.write(uploaded.read())
 
-            # Dekodowanie
             decode(
                 master,
                 png_path=TMP_DNA,
                 watermark_text=f"CODE:{code}|SID:{sid}"
             )
 
-            # Aktualizacja statusu kodu
             db[code] = {
                 "status": "used",
                 "master": master,
@@ -127,30 +123,17 @@ if mode == "Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # =========================
-            # Wyświetlamy odkodowany obraz w takim samym rozmiarze jak zakodowany
+            # Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
             # =========================
             recovered_img = Image.open(RECON_PATH).convert("RGB")
             encoded_img = Image.open(OUT_PATH).convert("RGB")
 
+            # Dopasowujemy rozmiar odkodowanego obrazu do rozmiaru zakodowanego
+            recovered_img_resized = recovered_img.resize(encoded_img.size, Image.LANCZOS)
+
             st.image(
-                recovered_img,
-                caption="Odszyfrowany obraz z zabezpieczeniem",
-                width=encoded_img.width  # dopasowanie do szerokości zakodowanego
-            )
-
-            # =========================
-            # Przygotowanie do pobrania
-            # =========================
-            buf_recovered = io.BytesIO()
-            recovered_img.save(buf_recovered, format="PNG")
-            buf_recovered.seek(0)
-
-            st.download_button(
-                "⬇ Pobierz odszyfrowany obraz",
-                buf_recovered.getvalue(),
-                file_name="Odszyfrowany.png",
-                mime="image/png"
+                recovered_img_resized,
+                caption="Odszyfrowany obraz z zabezpieczeniem"
             )
 
         finally:
