@@ -75,12 +75,16 @@ if mode == "Encode":
     if st.session_state.encode_done:
         st.success("✅ Zakodowano")
         st.code("\n".join(st.session_state.access_codes))
-        st.image(Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-                 caption="PatoDNA Product (zakodowany)")
-        st.download_button("⬇ Pobierz obraz",
+        st.image(
+            Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
+            caption="PatoDNA Product (zakodowany)"
+        )
+        st.download_button(
+            "⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
-            mime="image/png")
+            mime="image/png"
+        )
 
 # =========================
 # TRYB DECODE
@@ -119,13 +123,18 @@ if mode == "Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # =========================
-            # Wyświetlamy odkodowany obraz od razu, w pełnej rozdzielczości
+            # Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
             # =========================
             recovered_img = Image.open(RECON_PATH).convert("RGB")
-            st.image(recovered_img,
-                     caption="Odszyfrowany obraz z zabezpieczeniem",
-                     use_column_width=True)
+            encoded_img = Image.open(OUT_PATH).convert("RGB")
+
+            # Dopasowujemy rozmiar odkodowanego obrazu do rozmiaru zakodowanego
+            recovered_img_resized = recovered_img.resize(encoded_img.size, Image.LANCZOS)
+
+            st.image(
+                recovered_img_resized,
+                caption="Odszyfrowany obraz z zabezpieczeniem"
+            )
 
         finally:
             TMP_DNA.unlink(missing_ok=True)
