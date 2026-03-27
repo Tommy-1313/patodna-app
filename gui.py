@@ -134,14 +134,18 @@ if mode == "Decode":
 
             st.success("✅ Odszyfrowano")
 
-            # 🔹 Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
+            # =========================
+            # Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
+            # =========================
             recovered_img = Image.open(RECON_PATH).convert("RGB")
             encoded_img = Image.open(OUT_PATH).convert("RGB")
 
+            # dopasowanie rozmiaru odkodowanego do zakodowanego
+            recovered_img = recovered_img.resize(encoded_img.size, Image.LANCZOS)
+
             st.image(
                 recovered_img,
-                caption="Odszyfrowany obraz z zabezpieczeniem",
-                width=encoded_img.width  # dopasowujemy dokładnie do obrazu zakodowanego
+                caption="Odszyfrowany obraz z zabezpieczeniem"
             )
 
         finally:
