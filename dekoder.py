@@ -1,38 +1,31 @@
-import sys
-import numpy as np
-from PIL import Image
-from pathlib import Path
+# -*- coding: utf-8 -*-
 
-BASE = Path(__file__).resolve().parent
-DATA_PATH = BASE / "dna.npz"
-OUTPUT_PATH = BASE / "reconstructed.png"
+import argparse
 
-if not DATA_PATH.exists():
-    print("Brak pliku dna.npz")
-    sys.exit()
+from pato import OUT_PATH, RECON_PATH, decode
 
-data = np.load(DATA_PATH)
 
-encoded = data["encoded"]
-feat_hash = str(data["hash"])
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Odtwarza obraz z pliku PatoDNA PNG z paskiem danych."
+    )
+    parser.add_argument(
+        "--png",
+        default=str(OUT_PATH),
+        help="Ścieżka do zakodowanego obrazu PNG.",
+    )
+    parser.add_argument(
+        "--out",
+        default=str(RECON_PATH),
+        help="Gdzie zapisać odtworzony obraz.",
+    )
+    parser.add_argument("--code", help="10-cyfrowy kod główny.")
+    args = parser.parse_args()
 
-# ===============================
-# Generowanie klucza
-# ===============================
-key_bytes = bytes.fromhex(feat_hash[:64])
-key = np.frombuffer(key_bytes,dtype=np.uint8)
+    code = args.code or input("Podaj 10-cyfrowy kod: ")
+    ok = decode(code, png_path=args.png, out_path=args.out)
 
-flat=encoded.flatten()
-
-key_repeated=np.resize(key,flat.shape)
-
-decoded=np.bitwise_xor(flat,key_repeated)
-decoded=decoded.reshape(encoded.shape)
-
-full_image = decoded/255.0
-
-img=Image.fromarray((full_image*255).astype(np.uint8))
-img.save(OUTPUT_PATH)
-
-print("Obraz odtworzony:",OUTPUT_PATH)
-img.show()
+    if ok:
+        print("Obraz odtworzony:", args.out)
+    else:
+        print("Nie udało się odtworzyć obrazu. Kod lub plik są nieprawidłowe.")

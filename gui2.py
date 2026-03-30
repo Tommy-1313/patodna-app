@@ -1,11 +1,17 @@
-# gui_secure_full_no_dark.py
 # -*- coding: utf-8 -*-
 
-import streamlit as st
+import datetime
+import io
+import json
+import platform
+import secrets
+import uuid
 from pathlib import Path
-import json, secrets, io, uuid, datetime, platform
+
+import streamlit as st
 from PIL import Image
-from pato import encode, decode, OUT_PATH, RECON_PATH
+
+from pato import OUT_PATH, RECON_PATH, decode, encode
 
 CODES_DB = Path("codes.json")
 TMP_INPUT = Path("tmp_input.png")
@@ -16,35 +22,37 @@ if "encode_done" not in st.session_state:
     st.session_state.access_codes = []
     st.session_state.encoded_image_bytes = None
 
+
 def load_codes():
     if not CODES_DB.exists():
         return {}
-    return json.loads(CODES_DB.read_text())
+    return json.loads(CODES_DB.read_text(encoding="utf-8"))
+
 
 def save_codes(db):
-    CODES_DB.write_text(json.dumps(db, indent=2))
+    CODES_DB.write_text(json.dumps(db, indent=2), encoding="utf-8")
+
 
 def generate_codes(n):
-    s = set()
-    while len(s) < n:
-        s.add("".join(str(secrets.randbelow(10)) for _ in range(10)))
-    return sorted(s)
+    codes = set()
+    while len(codes) < n:
+        codes.add("".join(str(secrets.randbelow(10)) for _ in range(10)))
+    return sorted(codes)
+
 
 def get_session_id():
     if "sid" not in st.session_state:
         st.session_state.sid = uuid.uuid4().hex[:12]
     return st.session_state.sid
 
+
 st.set_page_config(page_title="PatoDNA - Secure Viewer", layout="centered")
 st.title("🧬 PatoDNA - Secure Kodowanie/Dekodowanie")
 
 mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 
-# =========================
-# TRYB ENCODE
-# =========================
 if mode == "Encode":
-    uploaded = st.file_uploader("Wybierz obraz", type=["jpg","jpeg","png"])
+    uploaded = st.file_uploader("Wybierz obraz", type=["jpg", "jpeg", "png"])
     n_codes = st.slider("Ile kodów?", 1, 500, 20)
 
     if uploaded and st.button("Encode"):
@@ -52,23 +60,19 @@ if mode == "Encode":
             master = generate_codes(1)[0]
             codes = generate_codes(n_codes)
 
-            db = load_codes()
-            for c in codes:
-                db[c] = {"status": "unused", "master": master}
-            save_codes(db)
-
-            # zapisujemy obraz w pełnej rozdzielczości, ostro
             Image.open(uploaded).convert("RGB").save(TMP_INPUT)
             encode(TMP_INPUT, code=master)
 
-            buf = io.BytesIO()
-            Image.open(OUT_PATH).save(buf, format="PNG")  # ostre, brak rozmycia
-            buf.seek(0)
+            image_bytes = OUT_PATH.read_bytes()
+
+            db = load_codes()
+            for one_time_code in codes:
+                db[one_time_code] = {"status": "unused", "master": master}
+            save_codes(db)
 
             st.session_state.encode_done = True
             st.session_state.access_codes = codes
-            st.session_state.encoded_image_bytes = buf.getvalue()
-
+            st.session_state.encoded_image_bytes = image_bytes
         finally:
             TMP_INPUT.unlink(missing_ok=True)
 
@@ -77,18 +81,15 @@ if mode == "Encode":
         st.code("\n".join(st.session_state.access_codes))
         st.image(
             Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
-            caption="PatoDNA Product (zakodowany)"
+            caption="PatoDNA Product (zakodowany)",
         )
         st.download_button(
             "⬇ Pobierz obraz",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
-            mime="image/png"
+            mime="image/png",
         )
 
-# =========================
-# TRYB DECODE
-# =========================
 if mode == "Decode":
     uploaded = st.file_uploader("Wgraj PatoDNA PNG", type=["png"])
     code = st.text_input("Jednorazowy kod")
@@ -97,44 +98,41 @@ if mode == "Decode":
         try:
             db = load_codes()
             if code not in db or db[code]["status"] == "used":
-                st.error("Kod nieprawidłowy")
+                st.error("Kod nieprawidłowy lub już wykorzystany.")
                 st.stop()
 
             sid = get_session_id()
             master = db[code]["master"]
 
-            with open(TMP_DNA, "wb") as f:
-                f.write(uploaded.read())
+            with open(TMP_DNA, "wb") as file_obj:
+                file_obj.write(uploaded.read())
 
-            decode(
+            decode_ok = decode(
                 master,
                 png_path=TMP_DNA,
-                watermark_text=f"CODE:{code}|SID:{sid}"
+                watermark_text=f"CODE:{code}|SID:{sid}",
             )
+            if not decode_ok:
+                st.error(
+                    "Nie udało się odszyfrować obrazu."
+                    " Sprawdź plik i kod."
+                )
+                st.stop()
 
             db[code] = {
                 "status": "used",
                 "master": master,
                 "used_at": datetime.datetime.now().isoformat(),
                 "session": sid,
-                "platform": platform.system()
+                "platform": platform.system(),
             }
             save_codes(db)
 
             st.success("✅ Odszyfrowano")
-
-            # Wyświetlamy odkodowany obraz w tym samym rozmiarze co zakodowany
-            # =========================
             recovered_img = Image.open(RECON_PATH).convert("RGB")
-            encoded_img = Image.open(OUT_PATH).convert("RGB")
-
-            # Dopasowujemy rozmiar odkodowanego obrazu do rozmiaru zakodowanego
-            recovered_img_resized = recovered_img.resize(encoded_img.size, Image.LANCZOS)
-
             st.image(
-                recovered_img_resized,
-                caption="Odszyfrowany obraz z zabezpieczeniem"
+                recovered_img,
+                caption="Odszyfrowany obraz z zabezpieczeniem",
             )
-
         finally:
             TMP_DNA.unlink(missing_ok=True)
