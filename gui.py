@@ -106,11 +106,22 @@ def render_display_image(image_source, caption, protected=False):
         if protected
         else ""
     )
+    image_class = (
+        "image-card protected-image-card" if protected else "image-card"
+    )
+    overlay = (
+        '<div class="image-shield">PROTECTED PREVIEW</div>'
+        if protected
+        else ""
+    )
     st.markdown(
         (
-            '<div class="image-card">'
+            f'<div class="{image_class}">'
             f'<img src="data:image/jpeg;base64,{b64}" '
-            f'alt="{caption}" style="{protection}">'
+            f'alt="{caption}" style="{protection}" '
+            'draggable="false" oncontextmenu="return false;" '
+            'onselectstart="return false;">'
+            f'{overlay}'
             f'<div class="image-caption">{caption}</div>'
             '</div>'
         ),
@@ -151,7 +162,7 @@ def inject_mobile_styles():
             color: #faf5ff;
         }
         .block-container {
-            padding-top: 1rem;
+            padding-top: calc(4.2rem + env(safe-area-inset-top));
             padding-bottom: 2rem;
             max-width: 760px;
         }
@@ -231,12 +242,31 @@ def inject_mobile_styles():
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
         }
         .image-card {
+            position: relative;
             margin: 0.5rem 0 1rem 0;
             border-radius: 18px;
             overflow: hidden;
             background: rgba(12, 7, 18, 0.92);
             border: 1px solid rgba(196, 181, 253, 0.16);
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        }
+        .image-shield {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: repeating-linear-gradient(
+                -32deg,
+                rgba(0, 0, 0, 0.00) 0 18px,
+                rgba(168, 85, 247, 0.16) 18px 36px
+            );
+            color: rgba(255, 255, 255, 0.26);
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: 0.2rem;
+            text-align: center;
+            pointer-events: none;
         }
         .image-card img {
             display: block;
@@ -286,10 +316,10 @@ def inject_mobile_styles():
             .block-container {
                 padding-left: 0.85rem;
                 padding-right: 0.85rem;
-                padding-top: 0.7rem;
+                padding-top: calc(5rem + env(safe-area-inset-top));
             }
             h1 {
-                font-size: 1.45rem !important;
+                font-size: 1.35rem !important;
             }
         }
         </style>
@@ -313,14 +343,16 @@ mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 
 if mode == "Encode":
     uploaded = st.file_uploader("Select an image", type=["jpg", "jpeg", "png"])
-    rotation_label = st.selectbox(
-        "Phone photo rotation",
-        ["Auto", "90° right", "90° left", "180°"],
-        help=(
-            "If the phone image still looks sideways, choose an extra "
-            "rotation here before encoding."
-        ),
-    )
+    rotation_label = "Auto"
+    with st.expander("⚙️ Advanced options", expanded=False):
+        rotation_label = st.selectbox(
+            "Phone image rotation correction",
+            ["Auto", "90° right", "90° left", "180°"],
+            help=(
+                "Emergency option only when Safari/iPhone still shows the "
+                "photo sideways."
+            ),
+        )
     n_codes = st.slider("How many codes do you want?", 1, 500, 20)
 
     if uploaded and st.button("Encode"):
@@ -381,10 +413,19 @@ if mode == "Decode":
         "Upload PatoDNA (optional)",
         type=["png", "jpg", "jpeg"],
     )
-    code = st.text_input("One-time code")
+    code = st.text_input(
+        "One-time code",
+        max_chars=10,
+        placeholder="Enter 10 digits",
+    )
+    decode_clicked = st.button("🔓 Decode image", use_container_width=True)
 
-    if code and st.button("Decode"):
+    if decode_clicked:
         try:
+            if len(code.strip()) != 10 or not code.strip().isdigit():
+                st.error("Enter a valid 10-digit one-time code.")
+                st.stop()
+
             db = load_codes()
             if code not in db or db[code]["status"] == "used":
                 st.error("Code invalid or already used.")
