@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import base64
 import datetime
 import io
 import json
@@ -9,7 +10,7 @@ import uuid
 from pathlib import Path
 
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 
 from pato import OUT_PATH, RECON_PATH, decode, encode
 
@@ -21,6 +22,7 @@ if "encode_done" not in st.session_state:
     st.session_state.encode_done = False
     st.session_state.access_codes = []
     st.session_state.encoded_image_bytes = None
+    st.session_state.gallery_image_bytes = None
 
 
 def load_codes():
@@ -44,6 +46,36 @@ def get_session_id():
     if "sid" not in st.session_state:
         st.session_state.sid = uuid.uuid4().hex[:12]
     return st.session_state.sid
+
+
+def normalize_for_display(image_source):
+    if isinstance(image_source, (bytes, bytearray)):
+        image = Image.open(io.BytesIO(image_source))
+    else:
+        image = Image.open(image_source)
+    return ImageOps.exif_transpose(image).convert("RGB")
+
+
+def make_gallery_jpg(image_bytes):
+    image = normalize_for_display(image_bytes)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=95, optimize=True)
+    return buffer.getvalue()
+
+
+def render_phone_save_link(image_bytes, label):
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    st.markdown(
+        (
+            f'<a href="data:image/jpeg;base64,{b64}" '
+            'target="_blank" rel="noopener noreferrer" '
+            'style="text-decoration:none;">'
+            f'<div style="display:inline-block;padding:0.6rem 0.9rem;'
+            'background:#0e1117;color:white;border-radius:0.6rem;'
+            f'font-weight:600;">{label}</div></a>'
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 st.set_page_config(page_title="PatoDNA - Secure Viewer", layout="centered")
@@ -70,6 +102,7 @@ if mode == "Encode":
             )
 
             image_bytes = OUT_PATH.read_bytes()
+            gallery_bytes = make_gallery_jpg(image_bytes)
 
             db = load_codes()
             for one_time_code in codes:
@@ -83,6 +116,7 @@ if mode == "Encode":
             st.session_state.encode_done = True
             st.session_state.access_codes = codes
             st.session_state.encoded_image_bytes = image_bytes
+            st.session_state.gallery_image_bytes = gallery_bytes
         finally:
             if "tmp_input" in locals():
                 tmp_input.unlink(missing_ok=True)
@@ -91,11 +125,25 @@ if mode == "Encode":
         st.success("✅ Zakodowano")
         st.code("\n".join(st.session_state.access_codes))
         st.image(
-            Image.open(io.BytesIO(st.session_state.encoded_image_bytes)),
+            normalize_for_display(st.session_state.encoded_image_bytes),
             caption="PatoDNA Product (zakodowany)",
         )
+        render_phone_save_link(
+            st.session_state.gallery_image_bytes,
+            "📱 Otwórz wersję do Zdjęć",
+        )
+        st.caption(
+            "Na telefonie kliknij przycisk powyżej i wybierz "
+            "`Zachowaj obraz`, żeby trafił od razu do galerii/Zdjęć."
+        )
         st.download_button(
-            "⬇ Pobierz obraz",
+            "📷 Pobierz wersję do galerii (JPG)",
+            st.session_state.gallery_image_bytes,
+            file_name="PatoDNA_photo.jpg",
+            mime="image/jpeg",
+        )
+        st.download_button(
+            "⬇ Pobierz plik PNG",
             st.session_state.encoded_image_bytes,
             file_name="PatoDNA.png",
             mime="image/png",
@@ -148,10 +196,16 @@ if mode == "Decode":
             save_codes(db)
 
             st.success("✅ Odszyfrowano")
-            recovered_img = Image.open(RECON_PATH).convert("RGB")
+            recovered_img = normalize_for_display(RECON_PATH)
+            recovered_buffer = io.BytesIO()
+            recovered_img.save(recovered_buffer, format="JPEG", quality=95)
             st.image(
                 recovered_img,
                 caption="Odszyfrowany obraz z zabezpieczeniem",
+            )
+            render_phone_save_link(
+                recovered_buffer.getvalue(),
+                "📱 Otwórz odszyfrowany obraz do Zdjęć",
             )
         finally:
             TMP_DNA.unlink(missing_ok=True)

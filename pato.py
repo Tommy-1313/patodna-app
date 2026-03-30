@@ -443,7 +443,7 @@ def encode(
     if code is None:
         code = generate_code()
 
-    img = Image.open(img_path).convert("RGB")
+    img = ImageOps.exif_transpose(Image.open(img_path)).convert("RGB")
     img_uint8 = np.array(img, dtype=np.uint8)
 
     visual_image = ImageOps.mirror(_build_dna_art(img_uint8))
@@ -524,7 +524,8 @@ def decode(
             out_arr = decoded.reshape(payload["shape"]).astype(np.uint8)
             out_img = Image.fromarray(out_arr, "RGB")
         else:
-            out_img = Image.open(io.BytesIO(decoded_bytes)).convert("RGB")
+            decoded_source = Image.open(io.BytesIO(decoded_bytes))
+            out_img = ImageOps.exif_transpose(decoded_source).convert("RGB")
 
         if watermark_text:
             out_img = add_subtle_watermark(out_img, watermark_text)

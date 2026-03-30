@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from pato import decode, encode, extract_visual_image
 
@@ -95,6 +95,36 @@ class PatoDNATestCase(unittest.TestCase):
             out_path=self.recovered_path,
         )
         self.assertTrue(ok)
+
+    def test_roundtrip_respects_exif_orientation(self):
+        oriented_path = self.base / "phone_photo.jpg"
+        exif = Image.Exif()
+        exif[274] = 6
+        Image.fromarray(self.original, "RGB").save(
+            oriented_path,
+            format="JPEG",
+            exif=exif,
+        )
+
+        expected = np.array(
+            ImageOps.exif_transpose(Image.open(oriented_path)).convert("RGB")
+        )
+
+        encode(
+            img_path=oriented_path,
+            output_png=self.output_path,
+            code="1234567890",
+        )
+        ok = decode(
+            "1234567890",
+            png_path=self.output_path,
+            out_path=self.recovered_path,
+        )
+
+        self.assertTrue(ok)
+        recovered = np.array(Image.open(self.recovered_path).convert("RGB"))
+        self.assertEqual(recovered.shape, expected.shape)
+        self.assertTrue(np.array_equal(recovered, expected))
 
 
 if __name__ == "__main__":
