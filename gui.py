@@ -56,6 +56,19 @@ def normalize_for_display(image_source):
     return ImageOps.exif_transpose(image).convert("RGB")
 
 
+def apply_rotation_fix(image, rotation_label):
+    rotation_map = {
+        "Auto": 0,
+        "90° right": -90,
+        "90° left": 90,
+        "180°": 180,
+    }
+    angle = rotation_map.get(rotation_label, 0)
+    if angle:
+        return image.rotate(angle, expand=True)
+    return image
+
+
 def make_gallery_jpg(image_bytes):
     image = normalize_for_display(image_bytes)
     buffer = io.BytesIO()
@@ -300,6 +313,14 @@ mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 
 if mode == "Encode":
     uploaded = st.file_uploader("Select an image", type=["jpg", "jpeg", "png"])
+    rotation_label = st.selectbox(
+        "Phone photo rotation",
+        ["Auto", "90° right", "90° left", "180°"],
+        help=(
+            "If the phone image still looks sideways, choose an extra "
+            "rotation here before encoding."
+        ),
+    )
     n_codes = st.slider("How many codes do you want?", 1, 500, 20)
 
     if uploaded and st.button("Encode"):
@@ -307,9 +328,10 @@ if mode == "Encode":
             master = generate_codes(1)[0]
             codes = generate_codes(n_codes)
 
-            suffix = Path(uploaded.name or "upload.png").suffix or ".png"
-            tmp_input = TMP_INPUT_BASE.with_suffix(suffix.lower())
-            tmp_input.write_bytes(uploaded.getvalue())
+            tmp_input = TMP_INPUT_BASE.with_suffix(".png")
+            prepared_image = normalize_for_display(uploaded.getvalue())
+            prepared_image = apply_rotation_fix(prepared_image, rotation_label)
+            prepared_image.save(tmp_input, format="PNG")
             _, payload_id = encode(
                 tmp_input,
                 code=master,
@@ -346,7 +368,8 @@ if mode == "Encode":
             "PatoDNA Product",
         )
         render_mobile_tip(
-            "There is now only one save option below for the encoded image."
+            "There is now only one save option below. If the phone photo "
+            "looked sideways, set the rotation before encoding."
         )
         render_phone_save_link(
             st.session_state.gallery_image_bytes,
@@ -406,8 +429,9 @@ if mode == "Decode":
                 protected=True,
             )
             render_mobile_tip(
-                "The decrypted image is preview-only. Full screenshot blocking "
-                "is not technically possible in a browser."
+                "The decrypted image is preview-only. "
+                "Full screenshot blocking is not technically possible "
+                "in a browser."
             )
         finally:
             TMP_DNA.unlink(missing_ok=True)

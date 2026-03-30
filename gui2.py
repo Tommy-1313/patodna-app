@@ -56,6 +56,19 @@ def normalize_for_display(image_source):
     return ImageOps.exif_transpose(image).convert("RGB")
 
 
+def apply_rotation_fix(image, rotation_label):
+    rotation_map = {
+        "Auto": 0,
+        "90° w prawo": -90,
+        "90° w lewo": 90,
+        "180°": 180,
+    }
+    angle = rotation_map.get(rotation_label, 0)
+    if angle:
+        return image.rotate(angle, expand=True)
+    return image
+
+
 def make_gallery_jpg(image_bytes):
     image = normalize_for_display(image_bytes)
     buffer = io.BytesIO()
@@ -304,6 +317,14 @@ mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 
 if mode == "Encode":
     uploaded = st.file_uploader("Wybierz obraz", type=["jpg", "jpeg", "png"])
+    rotation_label = st.selectbox(
+        "Obrót zdjęcia z telefonu",
+        ["Auto", "90° w prawo", "90° w lewo", "180°"],
+        help=(
+            "Jeśli zdjęcie z iPhone nadal wygląda bokiem, wybierz tutaj "
+            "odpowiedni obrót przed kodowaniem."
+        ),
+    )
     n_codes = st.slider("Ile kodów?", 1, 500, 20)
 
     if uploaded and st.button("Encode"):
@@ -311,9 +332,10 @@ if mode == "Encode":
             master = generate_codes(1)[0]
             codes = generate_codes(n_codes)
 
-            suffix = Path(uploaded.name or "upload.png").suffix or ".png"
-            tmp_input = TMP_INPUT_BASE.with_suffix(suffix.lower())
-            tmp_input.write_bytes(uploaded.getvalue())
+            tmp_input = TMP_INPUT_BASE.with_suffix(".png")
+            prepared_image = normalize_for_display(uploaded.getvalue())
+            prepared_image = apply_rotation_fix(prepared_image, rotation_label)
+            prepared_image.save(tmp_input, format="PNG")
             _, payload_id = encode(
                 tmp_input,
                 code=master,
@@ -350,8 +372,8 @@ if mode == "Encode":
             "PatoDNA Product (zakodowany)",
         )
         render_mobile_tip(
-            "Masz tylko jedną opcję zapisu: przycisk poniżej zapisuje "
-            "zakodowany obraz w wygodnej wersji do telefonu."
+            "Masz tylko jedną opcję zapisu. Jeśli zdjęcie z telefonu było "
+            "bokiem, ustaw obrót przed kodowaniem powyżej."
         )
         render_phone_save_link(
             st.session_state.gallery_image_bytes,
