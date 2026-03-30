@@ -82,45 +82,149 @@ def render_mobile_tip(text):
     )
 
 
+def render_hero_card(title, subtitle):
+    st.markdown(
+        (
+            '<div class="hero-card">'
+            f'<div class="hero-title">{title}</div>'
+            f'<div class="hero-subtitle">{subtitle}</div>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+
 def inject_mobile_styles():
     st.markdown(
         """
         <style>
+        .stApp {
+            background:
+                radial-gradient(
+                    circle at top left,
+                    rgba(168, 85, 247, 0.22),
+                    transparent 0 28%
+                ),
+                radial-gradient(
+                    circle at top right,
+                    rgba(126, 34, 206, 0.18),
+                    transparent 0 24%
+                ),
+                linear-gradient(160deg, #020204 0%, #09030f 45%, #14051f 100%);
+            color: #faf5ff;
+        }
         .block-container {
             padding-top: 1rem;
             padding-bottom: 2rem;
+            max-width: 760px;
+        }
+        h1, h2, h3, label, .stMarkdown, .stText {
+            color: #f5ebff !important;
+        }
+        .hero-card {
+            padding: 1rem 1.1rem;
+            margin: 0.35rem 0 1rem 0;
+            border-radius: 18px;
+            border: 1px solid rgba(192, 132, 252, 0.22);
+            background: linear-gradient(
+                135deg,
+                rgba(28, 6, 43, 0.96),
+                rgba(5, 5, 10, 0.94)
+            );
+            box-shadow: 0 12px 30px rgba(91, 33, 182, 0.28);
+        }
+        .hero-title {
+            font-size: 1.08rem;
+            font-weight: 800;
+            color: #f5d0fe;
+            margin-bottom: 0.25rem;
+        }
+        .hero-subtitle {
+            font-size: 0.94rem;
+            line-height: 1.45;
+            color: #ddd6fe;
         }
         div.stButton > button,
         div.stDownloadButton > button {
             width: 100%;
             min-height: 3rem;
             border-radius: 14px;
-            font-weight: 700;
+            font-weight: 800;
+            border: 1px solid rgba(216, 180, 254, 0.24);
+            background: linear-gradient(135deg, #581c87, #7e22ce);
+            color: white;
+            box-shadow: 0 10px 24px rgba(88, 28, 135, 0.38);
+        }
+        div.stButton > button:hover,
+        div.stDownloadButton > button:hover {
+            border-color: rgba(243, 232, 255, 0.38);
+            background: linear-gradient(135deg, #6b21a8, #9333ea);
+            color: white;
+        }
+        .stTextInput > div > div > input,
+        .stNumberInput input {
+            background: rgba(20, 12, 33, 0.92) !important;
+            color: #f5ebff !important;
+            border: 1px solid rgba(196, 181, 253, 0.18) !important;
+            border-radius: 12px !important;
+        }
+        .stFileUploader {
+            padding: 0.35rem;
+            border-radius: 16px;
+            background: rgba(18, 10, 30, 0.72);
+            border: 1px solid rgba(196, 181, 253, 0.14);
+        }
+        div[data-baseweb="select"],
+        div[role="radiogroup"] {
+            background: rgba(18, 10, 30, 0.62);
+            padding: 0.25rem;
+            border-radius: 14px;
+        }
+        .stSlider {
+            padding-top: 0.4rem;
+        }
+        .stExpander {
+            border: 1px solid rgba(196, 181, 253, 0.14) !important;
+            border-radius: 16px !important;
+            background: rgba(14, 8, 24, 0.88) !important;
         }
         [data-testid="stImage"] img {
-            border-radius: 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(196, 181, 253, 0.16);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
         }
         .mobile-save-link {
             display: block;
             width: 100%;
             box-sizing: border-box;
             text-align: center;
-            padding: 0.9rem 1rem;
+            padding: 0.95rem 1rem;
             margin: 0.4rem 0 0.7rem 0;
             border-radius: 14px;
-            background: linear-gradient(135deg, #111827, #1f2937);
+            background: linear-gradient(135deg, #3b0764, #7e22ce);
             color: white !important;
             text-decoration: none !important;
-            font-weight: 700;
+            font-weight: 800;
+            box-shadow: 0 10px 24px rgba(76, 29, 149, 0.34);
         }
         .mobile-tip {
             padding: 0.85rem 1rem;
             margin: 0.35rem 0 0.8rem 0;
             border-radius: 14px;
-            background: #eef6ff;
-            color: #0f172a;
-            border: 1px solid #cfe0ff;
+            background: rgba(88, 28, 135, 0.22);
+            color: #f5e9ff;
+            border: 1px solid rgba(216, 180, 254, 0.22);
             font-size: 0.96rem;
+        }
+        div[data-testid="stSuccess"] {
+            background: rgba(34, 197, 94, 0.14) !important;
+            color: #dcfce7 !important;
+            border: 1px solid rgba(74, 222, 128, 0.25) !important;
+            border-radius: 14px;
+        }
+        div[data-testid="stError"] {
+            background: rgba(239, 68, 68, 0.14) !important;
+            border-radius: 14px;
         }
         @media (max-width: 768px) {
             .block-container {
@@ -145,6 +249,13 @@ st.set_page_config(
 )
 inject_mobile_styles()
 st.title("🧬 PatoDNA - Secure Kodowanie/Dekodowanie")
+render_hero_card(
+    "Dark Violet Edition",
+    (
+        "Nowoczesny, ciemnofioletowy motyw z wygodnym mobile UX "
+        "i szybszym zapisem do galerii."
+    ),
+)
 
 mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
 
