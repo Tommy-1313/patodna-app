@@ -106,22 +106,13 @@ def render_display_image(image_source, caption, protected=False):
         if protected
         else ""
     )
-    image_class = (
-        "image-card protected-image-card" if protected else "image-card"
-    )
-    overlay = (
-        '<div class="image-shield">PROTECTED PREVIEW</div>'
-        if protected
-        else ""
-    )
     st.markdown(
         (
-            f'<div class="{image_class}">'
+            '<div class="image-card">'
             f'<img src="data:image/jpeg;base64,{b64}" '
             f'alt="{caption}" style="{protection}" '
             'draggable="false" oncontextmenu="return false;" '
             'onselectstart="return false;">'
-            f'{overlay}'
             f'<div class="image-caption">{caption}</div>'
             '</div>'
         ),
@@ -249,24 +240,6 @@ def inject_mobile_styles():
             background: rgba(12, 7, 18, 0.92);
             border: 1px solid rgba(196, 181, 253, 0.16);
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
-        }
-        .image-shield {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: repeating-linear-gradient(
-                -32deg,
-                rgba(0, 0, 0, 0.00) 0 18px,
-                rgba(168, 85, 247, 0.16) 18px 36px
-            );
-            color: rgba(255, 255, 255, 0.26);
-            font-size: 1rem;
-            font-weight: 800;
-            letter-spacing: 0.2rem;
-            text-align: center;
-            pointer-events: none;
         }
         .image-card img {
             display: block;
@@ -468,11 +441,6 @@ if mode == "Decode":
                 RECON_PATH,
                 "Decrypted image with security",
                 protected=True,
-            )
-            render_mobile_tip(
-                "The decrypted image is preview-only. "
-                "Full screenshot blocking is not technically possible "
-                "in a browser."
             )
         finally:
             TMP_DNA.unlink(missing_ok=True)
