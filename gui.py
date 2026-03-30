@@ -63,22 +63,83 @@ def make_gallery_jpg(image_bytes):
     return buffer.getvalue()
 
 
-def render_phone_save_link(image_bytes, label):
+def render_phone_save_link(image_bytes, label, filename="PatoDNA_photo.jpg"):
     b64 = base64.b64encode(image_bytes).decode("ascii")
     st.markdown(
         (
-            f'<a href="data:image/jpeg;base64,{b64}" '
-            'target="_blank" rel="noopener noreferrer" '
-            'style="text-decoration:none;">'
-            f'<div style="display:inline-block;padding:0.6rem 0.9rem;'
-            'background:#0e1117;color:white;border-radius:0.6rem;'
-            f'font-weight:600;">{label}</div></a>'
+            f'<a class="mobile-save-link" '
+            f'href="data:image/jpeg;base64,{b64}" '
+            f'download="{filename}">{label}</a>'
         ),
         unsafe_allow_html=True,
     )
 
 
-st.set_page_config(page_title="PatoDNA", layout="centered")
+def render_mobile_tip(text):
+    st.markdown(
+        f'<div class="mobile-tip">{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def inject_mobile_styles():
+    st.markdown(
+        """
+        <style>
+        .block-container {
+            padding-top: 1rem;
+            padding-bottom: 2rem;
+        }
+        div.stButton > button,
+        div.stDownloadButton > button {
+            width: 100%;
+            min-height: 3rem;
+            border-radius: 14px;
+            font-weight: 700;
+        }
+        [data-testid="stImage"] img {
+            border-radius: 16px;
+        }
+        .mobile-save-link {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: center;
+            padding: 0.9rem 1rem;
+            margin: 0.4rem 0 0.7rem 0;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #111827, #1f2937);
+            color: white !important;
+            text-decoration: none !important;
+            font-weight: 700;
+        }
+        .mobile-tip {
+            padding: 0.85rem 1rem;
+            margin: 0.35rem 0 0.8rem 0;
+            border-radius: 14px;
+            background: #eef6ff;
+            color: #0f172a;
+            border: 1px solid #cfe0ff;
+            font-size: 0.96rem;
+        }
+        @media (max-width: 768px) {
+            .block-container {
+                padding-left: 0.85rem;
+                padding-right: 0.85rem;
+                padding-top: 0.7rem;
+            }
+            h1 {
+                font-size: 1.45rem !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+st.set_page_config(page_title="PatoDNA", page_icon="🧬", layout="centered")
+inject_mobile_styles()
 st.title("PatoDNA Encoding/Decoding")
 
 mode = st.radio("Tryb:", ("Encode", "Decode"), horizontal=True)
@@ -123,18 +184,20 @@ if mode == "Encode":
 
     if st.session_state.encode_done:
         st.success("✅ Encoded")
-        st.code("\n".join(st.session_state.access_codes))
+        with st.expander("📋 Show access codes", expanded=True):
+            st.code("\n".join(st.session_state.access_codes))
+
         st.image(
             normalize_for_display(st.session_state.encoded_image_bytes),
             caption="PatoDNA Product",
         )
+        render_mobile_tip(
+            "On iPhone, tap the button below. If the system does not save "
+            "immediately, choose `Save Image` or long-press the image."
+        )
         render_phone_save_link(
             st.session_state.gallery_image_bytes,
-            "📱 Open phone-gallery version",
-        )
-        st.caption(
-            "On mobile, open the button above and choose `Save Image` "
-            "to put it straight into the photo gallery."
+            "📱 Open / save to Photos",
         )
         st.download_button(
             "📷 Download gallery version (JPG)",
@@ -200,9 +263,14 @@ if mode == "Decode":
             recovered_buffer = io.BytesIO()
             recovered_img.save(recovered_buffer, format="JPEG", quality=95)
             st.image(recovered_img, caption="Decrypted image with security")
+            render_mobile_tip(
+                "You can now open the decrypted image in a mobile-friendly "
+                "version and save it to Photos."
+            )
             render_phone_save_link(
                 recovered_buffer.getvalue(),
                 "📱 Open decrypted image for Photos",
+                filename="PatoDNA_decrypted.jpg",
             )
         finally:
             TMP_DNA.unlink(missing_ok=True)
