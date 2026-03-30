@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from pato import decode, encode
+from pato import decode, encode, extract_visual_image
 
 
 class PatoDNATestCase(unittest.TestCase):
@@ -66,6 +66,19 @@ class PatoDNATestCase(unittest.TestCase):
             out_path=self.recovered_path,
         )
         self.assertFalse(ok)
+
+    def test_encoded_output_has_no_large_visible_footer(self):
+        encode(
+            img_path=self.input_path,
+            output_png=self.output_path,
+            code="1234567890",
+        )
+
+        encoded = Image.open(self.output_path).convert("RGB")
+        visual = extract_visual_image(self.output_path).convert("RGB")
+
+        self.assertEqual(encoded.size[0], visual.size[0])
+        self.assertLessEqual(encoded.size[1] - visual.size[1], 4)
 
 
 if __name__ == "__main__":

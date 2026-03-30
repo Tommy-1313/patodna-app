@@ -14,7 +14,7 @@ from PIL import Image
 from pato import OUT_PATH, RECON_PATH, decode, encode
 
 CODES_DB = Path("codes.json")
-TMP_INPUT = Path("tmp_input.png")
+TMP_INPUT_BASE = Path("tmp_input")
 TMP_DNA = Path("tmp_dna.png")
 
 if "encode_done" not in st.session_state:
@@ -60,8 +60,10 @@ if mode == "Encode":
             master = generate_codes(1)[0]
             codes = generate_codes(n_codes)
 
-            Image.open(uploaded).convert("RGB").save(TMP_INPUT)
-            encode(TMP_INPUT, code=master)
+            suffix = Path(uploaded.name or "upload.png").suffix or ".png"
+            tmp_input = TMP_INPUT_BASE.with_suffix(suffix.lower())
+            tmp_input.write_bytes(uploaded.getvalue())
+            encode(tmp_input, code=master)
 
             image_bytes = OUT_PATH.read_bytes()
 
@@ -74,7 +76,8 @@ if mode == "Encode":
             st.session_state.access_codes = codes
             st.session_state.encoded_image_bytes = image_bytes
         finally:
-            TMP_INPUT.unlink(missing_ok=True)
+            if "tmp_input" in locals():
+                tmp_input.unlink(missing_ok=True)
 
     if st.session_state.encode_done:
         st.success("✅ Encoded")

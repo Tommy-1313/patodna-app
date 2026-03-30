@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""PatoDNA: kodowanie obrazu w obrazie z paskiem danych na dole."""
+"""PatoDNA: kodowanie obrazu w obrazie z prawie niewidocznym nośnikiem."""
 
 import argparse
 import datetime
@@ -12,10 +12,6 @@ import secrets
 import struct
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
@@ -23,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from scipy import ndimage
 from scipy.interpolate import CubicSpline
 
+plt.switch_backend("Agg")
 
 BASE = Path(__file__).resolve().parent
 DEFAULT_INPUTS = (
@@ -39,11 +36,17 @@ OUT_PATH = BASE / "PatoDNA_product.png"
 RECON_PATH = BASE / "PatoDNA_reconstructed.png"
 
 CODE_LEN = 10
-PAYLOAD_MAGIC = b"PDNA1"
+LSB_BITS = 2
+PAYLOAD_MAGIC = b"PDNA2"
+LEGACY_PAYLOAD_MAGIC = b"PDNA1"
+STEGO_MAGIC = b"PDLSB"
 FOOTER_MAGIC = b"PDBAR"
-PAYLOAD_HEADER = struct.Struct(">5sIII")
+PAYLOAD_HEADER = struct.Struct(">5sII")
+LEGACY_PAYLOAD_HEADER = struct.Struct(">5sIII")
+STEGO_HEADER = struct.Struct(">5sII")
 FOOTER_HEADER = struct.Struct(">5sII")
 PAYLOAD_PREFIX_SIZE = PAYLOAD_HEADER.size + 16 + 32
+LEGACY_PAYLOAD_PREFIX_SIZE = LEGACY_PAYLOAD_HEADER.size + 16 + 32
 
 
 def generate_code() -> str:
@@ -60,78 +63,171 @@ def kdf_pbkdf2(salt: bytes, code: str) -> bytes:
     )
 
 
-def _pack_payload(img_uint8: np.ndarray, code: str) -> bytes:
-    height, width, channels = img_uint8.shape
+def _capacity_for_array(image_arr: np.ndarray, bits: int = LSB_BITS) -> int:
+    return (image_arr.size * bits) // 8
+
+
+def _row_capacity(width: int, bits: int = LSB_BITS) -> int:
+    return (width * 3 * bits) // 8
+
+
+def _embed_bytes_in_lsb(
+    image_arr: np.ndarray,
+    data_bytes: bytes,
+    bits: int = LSB_BITS,
+) -> np.ndarray:
+    flat = image_arr.reshape(-1).copy()
+    capacity = (flat.size * bits) // 8
+    if len(data_bytes) > capacity:
+        raise ValueError("Brak miejsca na ukrycie danych w obrazie.")
+
+    bit_mask = (1 << bits) - 1
+    clear_mask = np.uint8(0xFF ^ bit_mask)
+    bit_stream = np.unpackbits(np.frombuffer(data_bytes, dtype=np.uint8))
+
+    padding = (-len(bit_stream)) % bits
+    if padding:
+        bit_stream = np.pad(bit_stream, (0, padding), constant_values=0)
+
+    grouped = bit_stream.reshape(-1, bits)
+    weights = 1 << np.arange(bits - 1, -1, -1, dtype=np.uint8)
+    values = (grouped * weights).sum(axis=1).astype(np.uint8)
+
+    flat[: values.size] = (flat[: values.size] & clear_mask) | values
+    return flat.reshape(image_arr.shape)
+
+
+def _extract_bytes_from_lsb(
+    image_arr: np.ndarray,
+    data_len: int,
+    bits: int = LSB_BITS,
+) -> bytes:
+    flat = np.array(image_arr, dtype=np.uint8).reshape(-1)
+    required_values = math.ceil((data_len * 8) / bits)
+    if required_values > flat.size:
+        raise ValueError(
+            "Brak wystarczającej liczby pikseli do odczytu danych."
+        )
+
+    bit_mask = np.uint8((1 << bits) - 1)
+    values = flat[:required_values] & bit_mask
+    shifts = np.arange(bits - 1, -1, -1, dtype=np.uint8)
+    bit_stream = ((values[:, None] >> shifts) & 1).astype(np.uint8).reshape(-1)
+    packed = np.packbits(bit_stream[: data_len * 8])
+    return packed.tobytes()[:data_len]
+
+
+def _serialize_source_bytes(img_path, image: Image.Image):
+    path = Path(img_path)
+    candidates = []
+
+    if path.exists():
+        source_bytes = path.read_bytes()
+        fmt = path.suffix.lstrip(".").upper() or "BIN"
+        candidates.append((source_bytes, fmt.encode("ascii", errors="ignore")))
+
+    png_buffer = io.BytesIO()
+    image.save(png_buffer, format="PNG", optimize=True)
+    candidates.append((png_buffer.getvalue(), b"PNG"))
+
+    return min(candidates, key=lambda item: len(item[0]))
+
+
+def _pack_payload(img_path, image: Image.Image, code: str) -> bytes:
+    source_bytes, format_bytes = _serialize_source_bytes(img_path, image)
     salt = os.urandom(16)
     key = np.frombuffer(kdf_pbkdf2(salt, code), dtype=np.uint8)
 
-    flat = img_uint8.reshape(-1)
-    encrypted = np.bitwise_xor(flat, np.resize(key, flat.size))
-    checksum = hashlib.sha256(flat.tobytes()).digest()
+    source_arr = np.frombuffer(source_bytes, dtype=np.uint8)
+    encrypted = np.bitwise_xor(source_arr, np.resize(key, source_arr.size))
+    checksum = hashlib.sha256(source_bytes).digest()
 
-    header = PAYLOAD_HEADER.pack(PAYLOAD_MAGIC, height, width, channels)
-    return header + salt + checksum + encrypted.tobytes()
+    header = PAYLOAD_HEADER.pack(
+        PAYLOAD_MAGIC,
+        len(format_bytes),
+        len(source_bytes),
+    )
+    return header + salt + checksum + format_bytes + encrypted.tobytes()
 
 
 def _unpack_payload(payload_bytes: bytes):
-    if len(payload_bytes) < PAYLOAD_PREFIX_SIZE:
-        raise ValueError("Zakodowany pasek danych jest zbyt krótki.")
+    magic = payload_bytes[:5]
 
-    magic, height, width, channels = PAYLOAD_HEADER.unpack(
-        payload_bytes[: PAYLOAD_HEADER.size]
-    )
-    if magic != PAYLOAD_MAGIC:
-        raise ValueError("Nieprawidłowy format danych PatoDNA.")
+    if magic == PAYLOAD_MAGIC:
+        if len(payload_bytes) < PAYLOAD_PREFIX_SIZE:
+            raise ValueError("Zakodowane dane są zbyt krótkie.")
 
-    offset = PAYLOAD_HEADER.size
-    salt = payload_bytes[offset: offset + 16]
-    checksum = payload_bytes[offset + 16: offset + 48]
-    encrypted = payload_bytes[offset + 48:]
-
-    expected_len = height * width * channels
-    if len(encrypted) != expected_len:
-        raise ValueError("Pasek danych jest uszkodzony lub niepełny.")
-
-    return height, width, channels, salt, checksum, encrypted
-
-
-def _append_payload_bar(
-    image: Image.Image,
-    payload_bytes: bytes,
-) -> Image.Image:
-    image_arr = np.array(image.convert("RGB"), dtype=np.uint8)
-    _, width, _ = image_arr.shape
-    capacity_per_row = width * 3
-
-    if capacity_per_row <= 0:
-        raise ValueError(
-            "Nie można zapisać danych w obrazie o zerowej szerokości."
+        _, format_len, data_len = PAYLOAD_HEADER.unpack(
+            payload_bytes[: PAYLOAD_HEADER.size]
         )
+        offset = PAYLOAD_HEADER.size
+        salt = payload_bytes[offset: offset + 16]
+        checksum = payload_bytes[offset + 16: offset + 48]
+        format_start = offset + 48
+        format_end = format_start + format_len
+        format_bytes = payload_bytes[format_start:format_end]
+        encrypted = payload_bytes[format_end:]
 
-    bar_rows = max(1, math.ceil(len(payload_bytes) / capacity_per_row))
-    padded_len = bar_rows * capacity_per_row
-    padded_payload = payload_bytes.ljust(padded_len, b"\x00")
+        if len(encrypted) != data_len:
+            raise ValueError("Zakodowane dane są niepełne lub uszkodzone.")
 
-    data_bar = np.frombuffer(padded_payload, dtype=np.uint8).reshape(
-        bar_rows, width, 3
-    )
+        return {
+            "version": "v2",
+            "format": format_bytes.decode("ascii", errors="ignore") or "PNG",
+            "salt": salt,
+            "checksum": checksum,
+            "encrypted": encrypted,
+        }
 
-    footer = np.zeros((1, width, 3), dtype=np.uint8)
-    footer_bytes = FOOTER_HEADER.pack(
-        FOOTER_MAGIC,
-        bar_rows,
-        len(payload_bytes),
-    )
-    footer.reshape(-1)[: len(footer_bytes)] = np.frombuffer(
-        footer_bytes,
-        dtype=np.uint8,
-    )
+    if magic == LEGACY_PAYLOAD_MAGIC:
+        if len(payload_bytes) < LEGACY_PAYLOAD_PREFIX_SIZE:
+            raise ValueError("Stary format danych jest niepełny.")
 
-    combined = np.vstack([image_arr, data_bar, footer])
-    return Image.fromarray(combined.astype(np.uint8), "RGB")
+        _, height, width, channels = LEGACY_PAYLOAD_HEADER.unpack(
+            payload_bytes[: LEGACY_PAYLOAD_HEADER.size]
+        )
+        offset = LEGACY_PAYLOAD_HEADER.size
+        salt = payload_bytes[offset: offset + 16]
+        checksum = payload_bytes[offset + 16: offset + 48]
+        encrypted = payload_bytes[offset + 48:]
+        expected_len = height * width * channels
+
+        if len(encrypted) != expected_len:
+            raise ValueError("Stary format danych jest uszkodzony.")
+
+        return {
+            "version": "legacy",
+            "shape": (height, width, channels),
+            "salt": salt,
+            "checksum": checksum,
+            "encrypted": encrypted,
+        }
+
+    raise ValueError("Nieprawidłowy format danych PatoDNA.")
 
 
-def _extract_payload_bar(image: Image.Image):
+def _append_overflow_bar(
+    image_arr: np.ndarray,
+    overflow_bytes: bytes,
+) -> np.ndarray:
+    if not overflow_bytes:
+        return image_arr
+
+    _, width, _ = image_arr.shape
+    row_capacity = _row_capacity(width)
+    if row_capacity <= 0:
+        raise ValueError("Obraz jest zbyt wąski, aby ukryć nadmiar danych.")
+
+    rows_needed = math.ceil(len(overflow_bytes) / row_capacity)
+    template_row = image_arr[-1:, :, :].copy()
+    bit_mask = np.uint8((1 << LSB_BITS) - 1)
+    clear_mask = np.uint8(0xFF ^ bit_mask)
+    bar_arr = np.repeat(template_row, rows_needed, axis=0) & clear_mask
+    bar_arr = _embed_bytes_in_lsb(bar_arr, overflow_bytes)
+    return np.vstack([image_arr, bar_arr])
+
+
+def _extract_legacy_payload_bar(image: Image.Image):
     image_arr = np.array(image.convert("RGB"), dtype=np.uint8)
     total_rows = image_arr.shape[0]
 
@@ -146,7 +242,7 @@ def _extract_payload_bar(image: Image.Image):
         footer_bytes[: FOOTER_HEADER.size]
     )
     if magic != FOOTER_MAGIC:
-        raise ValueError("Ten obraz nie zawiera paska danych PatoDNA.")
+        raise ValueError("Ten obraz nie zawiera starego paska danych PatoDNA.")
 
     if bar_rows <= 0 or bar_rows >= total_rows:
         raise ValueError("Nieprawidłowa wysokość paska danych.")
@@ -158,15 +254,55 @@ def _extract_payload_bar(image: Image.Image):
     payload_rows = image_arr[total_rows - 1 - bar_rows: total_rows - 1]
     payload_bytes = payload_rows.reshape(-1).tobytes()[:payload_len]
     visual_rows = image_arr[: total_rows - 1 - bar_rows]
-
     return visual_rows, payload_bytes
+
+
+def _extract_payload(image: Image.Image):
+    image_arr = np.array(image.convert("RGB"), dtype=np.uint8)
+    header_bytes = _extract_bytes_from_lsb(image_arr, STEGO_HEADER.size)
+    magic, payload_len, overflow_len = STEGO_HEADER.unpack(header_bytes)
+
+    if magic != STEGO_MAGIC:
+        return _extract_legacy_payload_bar(image)
+
+    row_capacity = _row_capacity(image_arr.shape[1])
+    if overflow_len < 0:
+        raise ValueError("Nieprawidłowy rozmiar nadmiaru danych.")
+
+    overflow_rows = 0
+    if overflow_len:
+        if row_capacity <= 0:
+            raise ValueError("Nie można odczytać nadmiaru danych z obrazu.")
+        overflow_rows = math.ceil(overflow_len / row_capacity)
+
+    if overflow_rows >= image_arr.shape[0]:
+        raise ValueError("Zakodowany obraz jest uszkodzony.")
+
+    visual_rows = image_arr[: image_arr.shape[0] - overflow_rows]
+    main_capacity = _capacity_for_array(visual_rows) - STEGO_HEADER.size
+    if main_capacity < 0:
+        raise ValueError("Obraz nie ma miejsca na nagłówek PatoDNA.")
+
+    main_len = min(payload_len, main_capacity)
+    lsb_payload = _extract_bytes_from_lsb(
+        visual_rows,
+        STEGO_HEADER.size + main_len,
+    )
+    payload_main = lsb_payload[STEGO_HEADER.size:]
+
+    payload_tail = b""
+    if overflow_rows:
+        overflow_rows_arr = image_arr[-overflow_rows:]
+        payload_tail = _extract_bytes_from_lsb(overflow_rows_arr, overflow_len)
+
+    return visual_rows, payload_main + payload_tail
 
 
 def extract_visual_image(png_path=OUT_PATH) -> Image.Image:
     image = Image.open(png_path).convert("RGB")
     try:
-        visual_rows, _ = _extract_payload_bar(image)
-    except ValueError:
+        visual_rows, _ = _extract_payload(image)
+    except (ValueError, struct.error):
         return image
 
     return Image.fromarray(visual_rows.astype(np.uint8), "RGB")
@@ -290,9 +426,24 @@ def encode(img_path=IMG_PATH, output_png=OUT_PATH, code=None):
     img_uint8 = np.array(img, dtype=np.uint8)
 
     visual_image = ImageOps.mirror(_build_dna_art(img_uint8))
-    payload_bytes = _pack_payload(img_uint8, code)
-    final_image = _append_payload_bar(visual_image, payload_bytes)
-    final_image.save(output_png, format="PNG")
+    visual_arr = np.array(visual_image, dtype=np.uint8)
+    payload_bytes = _pack_payload(img_path, img, code)
+
+    main_capacity = _capacity_for_array(visual_arr) - STEGO_HEADER.size
+    if main_capacity <= 0:
+        raise ValueError("Obraz wynikowy jest zbyt mały na dane PatoDNA.")
+
+    payload_main = payload_bytes[:main_capacity]
+    overflow_bytes = payload_bytes[main_capacity:]
+    header_bytes = STEGO_HEADER.pack(
+        STEGO_MAGIC,
+        len(payload_bytes),
+        len(overflow_bytes),
+    )
+
+    visual_arr = _embed_bytes_in_lsb(visual_arr, header_bytes + payload_main)
+    final_arr = _append_overflow_bar(visual_arr, overflow_bytes)
+    Image.fromarray(final_arr, "RGB").save(output_png, format="PNG")
 
     print(f"[ENCODE] DNA-art zapisany: {output_png}")
     print(f"[KOD] {code}")
@@ -302,23 +453,25 @@ def encode(img_path=IMG_PATH, output_png=OUT_PATH, code=None):
 def decode(code, png_path=OUT_PATH, out_path=RECON_PATH, watermark_text=None):
     try:
         image = Image.open(png_path)
-        _, payload_bytes = _extract_payload_bar(image)
-        height, width, channels, salt, checksum, encrypted = _unpack_payload(
-            payload_bytes
-        )
+        _, payload_bytes = _extract_payload(image)
+        payload = _unpack_payload(payload_bytes)
     except (OSError, ValueError, struct.error) as exc:
         print(f"[DECODE] {exc}")
         return False
 
-    key = np.frombuffer(kdf_pbkdf2(salt, code), dtype=np.uint8)
-    encrypted_arr = np.frombuffer(encrypted, dtype=np.uint8)
+    key = np.frombuffer(kdf_pbkdf2(payload["salt"], code), dtype=np.uint8)
+    encrypted_arr = np.frombuffer(payload["encrypted"], dtype=np.uint8)
     decoded = np.bitwise_xor(encrypted_arr, np.resize(key, encrypted_arr.size))
+    decoded_bytes = decoded.tobytes()
 
-    if hashlib.sha256(decoded.tobytes()).digest() != checksum:
+    if hashlib.sha256(decoded_bytes).digest() != payload["checksum"]:
         return False
 
-    out_arr = decoded.reshape((height, width, channels)).astype(np.uint8)
-    out_img = Image.fromarray(out_arr, "RGB")
+    if payload["version"] == "legacy":
+        out_arr = decoded.reshape(payload["shape"]).astype(np.uint8)
+        out_img = Image.fromarray(out_arr, "RGB")
+    else:
+        out_img = Image.open(io.BytesIO(decoded_bytes)).convert("RGB")
 
     if watermark_text:
         out_img = add_subtle_watermark(out_img, watermark_text)
@@ -337,4 +490,9 @@ if __name__ == "__main__":
         encode()
     else:
         ok = decode(args.code or input("Podaj 10-cyfrowy kod: "))
-        print("[DECODE] Sukces" if ok else "[DECODE] Błędny kod lub uszkodzony plik")
+        message = (
+            "[DECODE] Sukces"
+            if ok
+            else "[DECODE] Błędny kod lub uszkodzony plik"
+        )
+        print(message)
