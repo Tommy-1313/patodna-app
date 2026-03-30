@@ -63,13 +63,21 @@ if mode == "Encode":
             suffix = Path(uploaded.name or "upload.png").suffix or ".png"
             tmp_input = TMP_INPUT_BASE.with_suffix(suffix.lower())
             tmp_input.write_bytes(uploaded.getvalue())
-            encode(tmp_input, code=master)
+            _, payload_id = encode(
+                tmp_input,
+                code=master,
+                return_payload_id=True,
+            )
 
             image_bytes = OUT_PATH.read_bytes()
 
             db = load_codes()
             for one_time_code in codes:
-                db[one_time_code] = {"status": "unused", "master": master}
+                db[one_time_code] = {
+                    "status": "unused",
+                    "master": master,
+                    "payload_id": payload_id,
+                }
             save_codes(db)
 
             st.session_state.encode_done = True
@@ -94,10 +102,13 @@ if mode == "Encode":
         )
 
 if mode == "Decode":
-    uploaded = st.file_uploader("Wgraj PatoDNA PNG", type=["png"])
+    uploaded = st.file_uploader(
+        "Wgraj PatoDNA PNG (opcjonalnie)",
+        type=["png", "jpg", "jpeg"],
+    )
     code = st.text_input("Jednorazowy kod")
 
-    if uploaded and code and st.button("Decode"):
+    if code and st.button("Decode"):
         try:
             db = load_codes()
             if code not in db or db[code]["status"] == "used":
@@ -106,13 +117,18 @@ if mode == "Decode":
 
             sid = get_session_id()
             master = db[code]["master"]
+            payload_id = db[code].get("payload_id")
+            png_path = None
 
-            with open(TMP_DNA, "wb") as file_obj:
-                file_obj.write(uploaded.read())
+            if uploaded is not None:
+                with open(TMP_DNA, "wb") as file_obj:
+                    file_obj.write(uploaded.read())
+                png_path = TMP_DNA
 
             decode_ok = decode(
                 master,
-                png_path=TMP_DNA,
+                png_path=png_path,
+                payload_id=payload_id,
                 watermark_text=f"CODE:{code}|SID:{sid}",
             )
             if not decode_ok:

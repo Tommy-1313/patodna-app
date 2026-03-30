@@ -77,8 +77,24 @@ class PatoDNATestCase(unittest.TestCase):
         encoded = Image.open(self.output_path).convert("RGB")
         visual = extract_visual_image(self.output_path).convert("RGB")
 
-        self.assertEqual(encoded.size[0], visual.size[0])
-        self.assertLessEqual(encoded.size[1] - visual.size[1], 4)
+        self.assertEqual(encoded.size, visual.size)
+
+    def test_decode_works_with_code_only_from_server_store(self):
+        code = "1234567890"
+        _, payload_id = encode(
+            img_path=self.input_path,
+            output_png=self.output_path,
+            code=code,
+            return_payload_id=True,
+        )
+
+        ok = decode(
+            code,
+            png_path=None,
+            payload_id=payload_id,
+            out_path=self.recovered_path,
+        )
+        self.assertTrue(ok)
 
 
 if __name__ == "__main__":
