@@ -136,19 +136,12 @@ def _extract_bytes_from_lsb(
 
 
 def _serialize_source_bytes(img_path, image: Image.Image):
-    path = Path(img_path)
-    candidates = []
+    del img_path
 
-    if path.exists():
-        source_bytes = path.read_bytes()
-        fmt = path.suffix.lstrip(".").upper() or "BIN"
-        candidates.append((source_bytes, fmt.encode("ascii", errors="ignore")))
-
+    normalized = ImageOps.exif_transpose(image).convert("RGB")
     png_buffer = io.BytesIO()
-    image.save(png_buffer, format="PNG", optimize=True)
-    candidates.append((png_buffer.getvalue(), b"PNG"))
-
-    return min(candidates, key=lambda item: len(item[0]))
+    normalized.save(png_buffer, format="PNG", optimize=True)
+    return png_buffer.getvalue(), b"PNG"
 
 
 def _pack_payload(img_path, image: Image.Image, code: str) -> bytes:

@@ -82,6 +82,30 @@ def render_mobile_tip(text):
     )
 
 
+def render_display_image(image_source, caption, protected=False):
+    image = normalize_for_display(image_source)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=95, optimize=True)
+    b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+    protection = (
+        "pointer-events:none;-webkit-user-select:none;user-select:none;"
+        "-webkit-touch-callout:none;"
+        if protected
+        else ""
+    )
+    st.markdown(
+        (
+            '<div class="image-card">'
+            f'<img src="data:image/jpeg;base64,{b64}" '
+            f'alt="{caption}" style="{protection}">'
+            f'<div class="image-caption">{caption}</div>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+    return buffer.getvalue()
+
+
 def render_hero_card(title, subtitle):
     st.markdown(
         (
@@ -193,6 +217,25 @@ def inject_mobile_styles():
             border: 1px solid rgba(196, 181, 253, 0.16);
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
         }
+        .image-card {
+            margin: 0.5rem 0 1rem 0;
+            border-radius: 18px;
+            overflow: hidden;
+            background: rgba(12, 7, 18, 0.92);
+            border: 1px solid rgba(196, 181, 253, 0.16);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        }
+        .image-card img {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        .image-caption {
+            padding: 0.75rem 0.9rem 0.85rem 0.9rem;
+            text-align: center;
+            color: #ddd6fe;
+            font-size: 0.95rem;
+        }
         .mobile-save-link {
             display: block;
             width: 100%;
@@ -302,29 +345,17 @@ if mode == "Encode":
         with st.expander("📋 Pokaż kody dostępu", expanded=True):
             st.code("\n".join(st.session_state.access_codes))
 
-        st.image(
-            normalize_for_display(st.session_state.encoded_image_bytes),
-            caption="PatoDNA Product (zakodowany)",
+        render_display_image(
+            st.session_state.encoded_image_bytes,
+            "PatoDNA Product (zakodowany)",
         )
         render_mobile_tip(
-            "Na iPhonie stuknij przycisk poniżej. Jeśli system nie zapisze "
-            "od razu, wybierz `Zachowaj obraz` lub przytrzymaj grafikę."
+            "Masz tylko jedną opcję zapisu: przycisk poniżej zapisuje "
+            "zakodowany obraz w wygodnej wersji do telefonu."
         )
         render_phone_save_link(
             st.session_state.gallery_image_bytes,
-            "📱 Otwórz / zapisz do Zdjęć",
-        )
-        st.download_button(
-            "📷 Pobierz wersję do galerii (JPG)",
-            st.session_state.gallery_image_bytes,
-            file_name="PatoDNA_photo.jpg",
-            mime="image/jpeg",
-        )
-        st.download_button(
-            "⬇ Pobierz plik PNG",
-            st.session_state.encoded_image_bytes,
-            file_name="PatoDNA.png",
-            mime="image/png",
+            "📱 Zapisz zakodowany obraz",
         )
 
 if mode == "Decode":
@@ -374,21 +405,15 @@ if mode == "Decode":
             save_codes(db)
 
             st.success("✅ Odszyfrowano")
-            recovered_img = normalize_for_display(RECON_PATH)
-            recovered_buffer = io.BytesIO()
-            recovered_img.save(recovered_buffer, format="JPEG", quality=95)
-            st.image(
-                recovered_img,
-                caption="Odszyfrowany obraz z zabezpieczeniem",
+            render_display_image(
+                RECON_PATH,
+                "Odszyfrowany obraz z zabezpieczeniem",
+                protected=True,
             )
             render_mobile_tip(
-                "Możesz od razu otworzyć odszyfrowany obraz w wersji "
-                "wygodnej do zapisania w galerii telefonu."
-            )
-            render_phone_save_link(
-                recovered_buffer.getvalue(),
-                "📱 Otwórz odszyfrowany obraz do Zdjęć",
-                filename="PatoDNA_decrypted.jpg",
+                "Odszyfrowany obraz jest tylko do podglądu. "
+                "Usunąłem opcję pobierania; pełne zablokowanie screenshota "
+                "w przeglądarce nie jest technicznie możliwe."
             )
         finally:
             TMP_DNA.unlink(missing_ok=True)
